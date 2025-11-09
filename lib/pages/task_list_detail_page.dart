@@ -1,373 +1,127 @@
+// lib/pages/task_list_page.dart
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../models/task.dart';
-import '../providers/task_provider.dart';
+import '../database/app_database.dart';
+import '../services/notification_service.dart'; // ✅ IMPOR SERVICE
+import '../widgets/empty_state.dart';
 
-class TaskListDetailPage extends StatefulWidget {
-  final TaskList taskList;
+class TaskListPage extends StatelessWidget {
+  final String categoryId;
+  const TaskListPage({super.key, required this.categoryId});
 
-  const TaskListDetailPage({super.key, required this.taskList});
-
-  @override
-  State<TaskListDetailPage> createState() => _TaskListDetailPageState();
-}
-
-class _TaskListDetailPageState extends State<TaskListDetailPage> {
   @override
   Widget build(BuildContext context) {
-    return Consumer<TaskProvider>(
-      builder: (context, taskProvider, child) {
-        final currentList = taskProvider.taskLists.firstWhere(
-              (list) => list.name == widget.taskList.name,
-          orElse: () => widget.taskList,
-        );
+    final db = context.read<AppDatabase>();
+    final int id = int.parse(categoryId);
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(currentList.name),
-            backgroundColor: currentList.color,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            actions: [
-              PopupMenuButton(
-                icon: const Icon(Icons.more_vert),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit, size: 20),
-                        SizedBox(width: 8),
-                        Text('Edit Nama'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete, size: 20, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Hapus Daftar', style: TextStyle(color: Colors.red)),
-                      ],
-                    ),
+    return Scaffold(
+      body: StreamBuilder<TaskList>(
+        stream: db.taskListDao.watchById(id),
+        builder: (context, snapshot) {
+          final category = snapshot.data;
+          if (category == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          return CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                title: Text(category.name),
+                pinned: true,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _showDeleteCategoryDialog(context, db, category),
+                    tooltip: 'Hapus Kategori',
                   ),
                 ],
-                onSelected: (value) {
-                  if (value == 'edit') {
-                    _showEditListDialog(currentList);
-                  } else if (value == 'delete') {
-                    _showDeleteListDialog(currentList);
-                  }
+              ),
+              _buildTaskList(context, db, id),
+            ],
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/add-task/$categoryId'),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _buildTaskList(BuildContext context, AppDatabase db, int categoryId) {
+    return StreamBuilder<List<Task>>(
+      stream: db.taskDao.watchByListId(categoryId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
+        }
+        final tasks = snapshot.data!;
+        if (tasks.isEmpty) {
+          return const SliverFillRemaining(
+            child: EmptyState(
+              icon: Icons.task_alt,
+              message: 'Belum ada tugas di sini.',
+            ),
+          );
+        }
+
+        return SliverList.builder(
+          itemCount: tasks.length,
+          itemBuilder: (context, index) {
+            final task = tasks[index];
+            return ListTile(
+              leading: Checkbox(
+                value: task.isCompleted,
+                onChanged: (_) {
+                  // Panggil metode toggleComplete dari DAO
+                  db.taskDao.toggleComplete(task.id);
                 },
               ),
-            ],
-          ),
-          body: currentList.tasks.isEmpty
-              ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.task_alt,
-                  size: 64,
-                  color: Colors.grey.shade400,
+              title: Text(
+                task.title,
+                style: TextStyle(
+                  decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+                  color: task.isCompleted ? Colors.grey : null,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Belum ada tugas',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tekan tombol + untuk menambah',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade500,
-                  ),
-                ),
-              ],
-            ),
-          )
-              : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: currentList.tasks.length,
-            itemBuilder: (context, index) {
-              final task = currentList.tasks[index];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  leading: Checkbox(
-                    value: task.isCompleted,
-                    onChanged: (value) {
-                      taskProvider.toggleTaskCompletion(task);
-                    },
-                    activeColor: currentList.color,
-                  ),
-                  title: Text(
-                    task.title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      decoration: task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: task.isCompleted ? Colors.grey : Colors.black,
-                    ),
-                  ),
-                  trailing: PopupMenuButton(
-                    icon: const Icon(Icons.more_vert, color: Color(0xFF6C7B7F)),
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit, size: 20),
-                            SizedBox(width: 8),
-                            Text('Edit'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, size: 20, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Hapus', style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
-                      ),
-                    ],
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        _showEditTaskDialog(task);
-                      } else if (value == 'delete') {
-                        _showDeleteTaskDialog(currentList, task);
-                      }
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => _showAddTaskDialog(currentList),
-            backgroundColor: currentList.color,
-            child: const Icon(Icons.add, color: Colors.white),
-          ),
+              ),
+              subtitle: task.dueDate != null ? Text('Jatuh tempo: ${task.dueDate!.toLocal()}') : null,
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                onPressed: () => _showDeleteTaskDialog(context, db, task),
+              ),
+              onTap: () => context.push('/edit-task/${task.id}'),
+            );
+          },
         );
       },
     );
   }
 
-  void _showAddTaskDialog(TaskList taskList) {
-    final controller = TextEditingController();
+  void _showDeleteTaskDialog(BuildContext context, AppDatabase db, Task task) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Tugas Baru'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama tugas',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-          onSubmitted: (value) {
-            if (value.isNotEmpty) {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              final listIndex = taskProvider.taskLists.indexOf(taskList);
-              taskProvider.addTask(listIndex, Task(value, false));
-              Navigator.pop(context);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                final listIndex = taskProvider.taskLists.indexOf(taskList);
-                taskProvider.addTask(listIndex, Task(controller.text, false));
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: taskList.color,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Tambah'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditTaskDialog(Task task) {
-    final controller = TextEditingController(text: task.title);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Edit Tugas'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama tugas',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-          onSubmitted: (value) {
-            if (value.isNotEmpty) {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              taskProvider.updateTask(task, value);
-              Navigator.pop(context);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                taskProvider.updateTask(task, controller.text);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteTaskDialog(TaskList taskList, Task task) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Hapus Tugas'),
-        content: Text('Apakah Anda yakin ingin menghapus "${task.title}"?'),
+        content: Text('Anda yakin ingin menghapus tugas "${task.title}"?'),
         actions: [
+          TextButton(onPressed: () => context.pop(), child: const Text('Batal')),
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              taskProvider.deleteTask(taskList, task);
-              Navigator.pop(context);
+            onPressed: () async {
+              context.pop();
+              await db.taskDao.deleteById(task.id);
+              // ✅ BATALKAN NOTIFIKASI SAAT TUGAS DIHAPUS
+              await NotificationService().cancelNotification(task.id);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Hapus'),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
   }
 
-  void _showEditListDialog(TaskList taskList) {
-    final controller = TextEditingController(text: taskList.name);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Edit Nama Daftar'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama daftar',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-          onSubmitted: (value) {
-            if (value.isNotEmpty) {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              taskProvider.updateTaskList(taskList, value);
-              Navigator.pop(context);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                taskProvider.updateTaskList(taskList, controller.text);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteListDialog(TaskList taskList) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Hapus Daftar'),
-        content: Text(
-          'Apakah Anda yakin ingin menghapus daftar "${taskList.name}"? Semua tugas di dalamnya akan ikut terhapus.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              taskProvider.deleteTaskList(taskList);
-              Navigator.pop(context);
-              Navigator.pop(context); // Kembali ke dashboard
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Hapus'),
-          ),
-        ],
-      ),
-    );
+  void _showDeleteCategoryDialog(BuildContext context, AppDatabase db, TaskList category) {
+    // ... (Fungsi ini bisa Anda kembangkan untuk menghapus kategori beserta semua tugasnya)
+    // Jangan lupa untuk membatalkan notifikasi semua tugas di dalamnya jika Anda mengimplementasikan ini.
   }
 }

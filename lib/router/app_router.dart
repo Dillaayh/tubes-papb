@@ -1,75 +1,62 @@
-import 'package:flutter/material.dart';
+// lib/router/app_router.dart
 import 'package:go_router/go_router.dart';
+import '../pages/onboarding_page.dart'; // Asumsi Anda akan membuat file ini
 import '../pages/dashboard.dart';
-import '../pages/task_list_detail_page.dart';
-import '../models/task.dart';
+import '../pages/add_category_page.dart';
+import '../pages/task_list_page.dart';
+import '../pages/add_edit_task_page.dart';
+import '../pages/task_detail_page.dart';
+import '../pages/settings_page.dart';
 
 final GoRouter appRouter = GoRouter(
-  debugLogDiagnostics: true,
-  initialLocation: '/',
+  initialLocation: '/onboarding', // Arahkan ke dashboard untuk sekarang
   routes: [
     GoRoute(
-      path: '/',
-      name: 'dashboard',
-      pageBuilder: (context, state) => MaterialPage(
-        key: state.pageKey,
-        child: const Dashboard(),
-      ),
+      path: '/onboarding', // Ganti path awal jika perlu
+      builder: (context, state) => const OnboardingPage(),
     ),
     GoRoute(
-      path: '/task-list-detail',
-      name: 'taskListDetail',
-      pageBuilder: (context, state) {
-        final taskList = state.extra as TaskList?;
-
-        if (taskList == null) {
-          return MaterialPage(
-            key: state.pageKey,
-            child: const Scaffold(
-              body: Center(
-                child: Text('Task list not found'),
-              ),
-            ),
-          );
-        }
-
-        return MaterialPage(
-          key: state.pageKey,
-          child: TaskListDetailPage(taskList: taskList),
-        );
+      path: '/dashboard',
+      builder: (context, state) => const Dashboard(),
+    ),
+    GoRoute(
+      path: '/add-category',
+      builder: (context, state) => const AddCategoryPage(),
+    ),
+    GoRoute(
+      path: '/task-list/:categoryId',
+      builder: (context, state) {
+        final categoryId = int.parse(state.pathParameters['categoryId']!);
+        return TaskListPage(categoryId: categoryId);
       },
     ),
+    GoRoute(
+      path: '/add-task/:categoryId',
+      builder: (context, state) {
+        final categoryId = state.pathParameters['categoryId'];
+        return AddEditTaskPage(categoryId: categoryId);
+      },
+    ),
+    GoRoute(
+      path: '/edit-task/:taskId',
+      builder: (context, state) {
+        // 'taskId' di sini merujuk ke parameter di path, misal: /edit-task/123
+        final taskId = state.pathParameters['taskId']!;
+        return AddEditTaskPage(taskId: taskId);
+      },
+    ),
+    GoRoute(
+      // ✅ FIX: Ganti nama parameter agar konsisten
+      path: '/task-detail/:taskId',
+      builder: (context, state) {
+        // ✅ FIX: Parse String ke int sebelum dikirim ke page
+        final taskId = int.parse(state.pathParameters['taskId']!);
+        return TaskDetailPage(taskId: taskId);
+      },
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsPage(),
+    ),
   ],
-  errorBuilder: (context, state) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Error'),
-      backgroundColor: Colors.red,
-      foregroundColor: Colors.white,
-    ),
-    body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.error_outline, size: 64, color: Colors.red),
-          const SizedBox(height: 16),
-          Text(
-            'Halaman tidak ditemukan',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            state.error.toString(),
-            style: Theme.of(context).textTheme.bodySmall,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: () => context.go('/'),
-            icon: const Icon(Icons.home),
-            label: const Text('Kembali ke Beranda'),
-          ),
-        ],
-      ),
-    ),
-  ),
 );

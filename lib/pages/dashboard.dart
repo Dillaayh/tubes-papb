@@ -1,607 +1,209 @@
+// lib/pages/dashboard.dart
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../models/task.dart';
-import '../providers/task_provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import '../database/app_database.dart';
+import '../widgets/empty_state.dart';
+import '../utils/constants.dart'; // Pastikan Anda punya file ini
 
-class Dashboard extends StatefulWidget {
+class Dashboard extends StatelessWidget {
   const Dashboard({super.key});
 
   @override
-  State<Dashboard> createState() => _DashboardState();
-}
-
-class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
-  int _selectedIndex = 0;
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final db = context.watch<AppDatabase>();
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Wunderlist',
-          style: TextStyle(
-            color: Color(0xFF2E3A47),
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
-          ),
-        ),
+        title: Text('Wunderlist', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, color: Color(0xFF6C7B7F)),
-            onPressed: () => _showSearchDialog(),
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.push('/settings'),
+            tooltip: 'Pengaturan',
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Color(0xFF6C7B7F)),
-            onPressed: () => _showNotificationsDialog(),
-          ),
-          const SizedBox(width: 8),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF4A90E2),
-          labelColor: const Color(0xFF4A90E2),
-          unselectedLabelColor: const Color(0xFF6C7B7F),
-          tabs: const [
-            Tab(text: 'Daftar'),
-            Tab(text: 'Tugas'),
-          ],
+      ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverToBoxAdapter(
+              // ✅ WIDGET STATISTIK BARU DI SINI
+              child: _buildStatsHeader(db, theme),
+            ),
+          ];
+        },
+        body: StreamBuilder<List<TaskList>>(
+          stream: db.taskListDao.watchAll(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const EmptyState(
+                icon: Icons.inbox_outlined,
+                message: 'Belum Ada Kategori.\nBuat kategori pertama untuk mulai mengelola tugas.',
+              );
+            }
+
+            final categories = snapshot.data!;
+            return AnimationLimiter(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                itemCount: categories.length,
+                itemBuilder: (context, index) {
+                  final category = categories[index];
+                  return AnimationConfiguration.staggeredList(
+                    position: index,
+                    duration: const Duration(milliseconds: 375),
+                    child: SlideAnimation(
+                      verticalOffset: 50.0,
+                      child: FadeInAnimation(
+                        child: _CategoryCard(category: category),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildListsView(),
-          _buildTasksView(),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddDialog(),
-        backgroundColor: const Color(0xFF4A90E2),
-        elevation: 4,
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: const Color(0xFF4A90E2),
-        unselectedItemColor: const Color(0xFF6C7B7F),
-        backgroundColor: Colors.white,
-        elevation: 8,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Beranda',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.star_outline),
-            label: 'Favorit',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profil',
-          ),
-        ],
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/add-category'),
+        icon: const Icon(Icons.add),
+        label: const Text('Kategori Baru'),
       ),
     );
   }
 
-  Widget _buildListsView() {
-    return Consumer<TaskProvider>(
-      builder: (context, taskProvider, child) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Quick Stats
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF4A90E2).withOpacity(0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Selamat datang kembali!',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Anda memiliki ${taskProvider.incompleteTasks} tugas yang belum selesai',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        _buildStatItem('${taskProvider.taskLists.length}', 'Daftar'),
-                        const SizedBox(width: 24),
-                        _buildStatItem('${taskProvider.totalTasks}', 'Tugas'),
-                        const SizedBox(width: 24),
-                        _buildStatItem('${taskProvider.completedTasks}', 'Selesai'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+  // ✅ FUNGSI BARU UNTUK MEMBUAT HEADER STATISTIK
+  Widget _buildStatsHeader(AppDatabase db, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: StreamBuilder<List<Task>>(
+        stream: db.taskDao.watchAll(),
+        builder: (context, snapshot) {
+          final tasks = snapshot.data ?? [];
+          final completed = tasks.where((t) => t.isCompleted).length;
+          final incomplete = tasks.length - completed;
 
-              const SizedBox(height: 24),
-
-              // Task Lists
-              const Text(
-                'Daftar Tugas',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2E3A47),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              ...taskProvider.taskLists.map((list) => _buildTaskListCard(list)),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildTasksView() {
-    return Consumer<TaskProvider>(
-      builder: (context, taskProvider, child) {
-        final allTasks = taskProvider.allTasks;
-
-        if (allTasks.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+          return Container(
+            padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.primary.withOpacity(0.1)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Icon(
-                  Icons.task_alt,
-                  size: 64,
-                  color: Colors.grey.shade400,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Belum ada tugas',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
+                _StatItem(label: 'Total Tugas', value: tasks.length.toString(), color: theme.colorScheme.primary),
+                _StatItem(label: 'Aktif', value: incomplete.toString(), color: Colors.orange.shade700),
+                _StatItem(label: 'Selesai', value: completed.toString(), color: Colors.green.shade600),
               ],
             ),
           );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: allTasks.length,
-          itemBuilder: (context, index) {
-            return _buildTaskItem(allTasks[index]);
-          },
-        );
-      },
+        },
+      ),
     );
   }
+}
 
-  Widget _buildStatItem(String number, String label) {
+// ✅ WIDGET BARU UNTUK ITEM STATISTIK
+class _StatItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _StatItem({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          number,
-          style: const TextStyle(
-            color: Colors.white,
+          value,
+          style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
+            color: color,
           ),
         ),
+        const SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
             fontSize: 12,
+            color: Colors.grey.shade600,
           ),
         ),
       ],
     );
   }
+}
 
-  Widget _buildTaskListCard(TaskList taskList) {
-    int completedCount = taskList.tasks.where((task) => task.isCompleted).length;
-    double progress = taskList.tasks.isEmpty ? 0 : completedCount / taskList.tasks.length;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Material(
-        color: Colors.white,
+class _CategoryCard extends StatelessWidget {
+  final TaskList category;
+  const _CategoryCard({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    final db = context.watch<AppDatabase>();
+    final color = Color(category.colorValue);
+    final icon = AppConstants.getCategoryIcon(category.iconName ?? 'category');
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () => context.push('/task-list/${category.id}'),
         borderRadius: BorderRadius.circular(16),
-        elevation: 2,
-        shadowColor: Colors.black.withOpacity(0.1),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _openTaskList(taskList),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: taskList.color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    taskList.icon,
-                    color: taskList.color,
-                    size: 24,
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        taskList.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2E3A47),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${taskList.tasks.length} tugas',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF6C7B7F),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: AlwaysStoppedAnimation<Color>(taskList.color),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Text(
-                  '$completedCount/${taskList.tasks.length}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: taskList.color,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTaskItem(Task task) {
-    return Consumer<TaskProvider>(
-      builder: (context, taskProvider, child) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+                child: Icon(icon, color: color, size: 28),
               ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      category.name,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    StreamBuilder<List<Task>>(
+                      stream: db.taskDao.watchByListId(category.id),
+                      builder: (context, taskSnapshot) {
+                        if (!taskSnapshot.hasData) return const SizedBox.shrink();
+                        final tasks = taskSnapshot.data!;
+                        final incomplete = tasks.where((t) => !t.isCompleted).length;
+                        return Text(
+                          incomplete == 0 ? 'Semua tugas selesai' : '$incomplete tugas aktif',
+                          style: TextStyle(fontSize: 14, color: incomplete == 0 ? Colors.green : Colors.grey[600]),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.grey),
             ],
           ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Checkbox(
-              value: task.isCompleted,
-              onChanged: (value) {
-                taskProvider.toggleTaskCompletion(task);
-              },
-              activeColor: const Color(0xFF4A90E2),
-            ),
-            title: Text(
-              task.title,
-              style: TextStyle(
-                fontSize: 16,
-                decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                color: task.isCompleted ? const Color(0xFF6C7B7F) : const Color(0xFF2E3A47),
-              ),
-            ),
-            trailing: PopupMenuButton(
-              icon: const Icon(Icons.more_vert, color: Color(0xFF6C7B7F)),
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'edit',
-                  child: Text('Edit'),
-                ),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Text('Hapus'),
-                ),
-              ],
-              onSelected: (value) {
-                if (value == 'edit') {
-                  _showEditTaskDialog(task);
-                } else if (value == 'delete') {
-                  _deleteTask(task);
-                }
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _openTaskList(TaskList taskList) {
-    context.pushNamed(
-      'taskListDetail',
-      extra: taskList,
-    );
-  }
-
-  void _showAddDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Tambah Baru'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.list),
-              title: const Text('Daftar Tugas'),
-              onTap: () {
-                Navigator.pop(context);
-                _showAddListDialog();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.task),
-              title: const Text('Tugas'),
-              onTap: () {
-                Navigator.pop(context);
-                _showAddTaskDialog();
-              },
-            ),
-          ],
         ),
-      ),
-    );
-  }
-
-  void _showAddListDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Daftar Baru'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama daftar',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                taskProvider.addTaskList(TaskList(
-                  name: controller.text,
-                  icon: Icons.list_alt,
-                  color: Colors.purple,
-                  tasks: [],
-                ));
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Tambah'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAddTaskDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Tugas Baru'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama tugas',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                taskProvider.addTask(0, Task(controller.text, false));
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Tambah'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditTaskDialog(Task task) {
-    final controller = TextEditingController(text: task.title);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Edit Tugas'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nama tugas',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-                taskProvider.updateTask(task, controller.text);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _deleteTask(Task task) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Hapus Tugas'),
-        content: Text('Apakah Anda yakin ingin menghapus "${task.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-              // Find which list contains this task
-              for (var list in taskProvider.taskLists) {
-                if (list.tasks.contains(task)) {
-                  taskProvider.deleteTask(list, task);
-                  break;
-                }
-              }
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Hapus'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSearchDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Cari'),
-        content: const TextField(
-          decoration: InputDecoration(
-            labelText: 'Cari tugas atau daftar...',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tutup'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showNotificationsDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Notifikasi'),
-        content: const Text('Tidak ada notifikasi baru.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tutup'),
-          ),
-        ],
       ),
     );
   }
